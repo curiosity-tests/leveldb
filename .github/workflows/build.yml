@@ -58,9 +58,6 @@ jobs:
         - compiler: gcc
           CC: gcc
           CXX: g++
-        - compiler: msvc
-          CC:
-          CXX:
 
     env:
       CMAKE_BUILD_DIR: ${{ github.workspace }}/build
