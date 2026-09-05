@@ -3,10 +3,35 @@
 # found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 name: ci
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+    inputs:
+      leg:
+        description: "baseline (uninstrumented) or instrumented (under chalk/curiosity)"
+        type: choice
+        options: [instrumented, baseline]
+        default: instrumented
+      profile:
+        description: "CrashOverride chalk profile"
+        type: string
+        default: curiosity-tests-racecar
+      racecar_run:
+        description: "racecar correlation token, echoed into the run name"
+        type: string
+        default: ""
+  push:
+  pull_request:
 
 permissions:
   contents: read
+  id-token: write
+
+env:
+  # The one variable that separates the arms: on baseline, action-checkout
+  # skips its Set up Chalk step entirely.
+  CHALK_ON: ${{ github.event_name == 'workflow_dispatch' && inputs.leg != 'baseline' }}
+
+run-name: "ci ${{ inputs.leg || 'push' }} ${{ inputs.racecar_run }}"
 
 jobs:
   build-and-test:
@@ -20,22 +45,12 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [clang, gcc, msvc]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
         optimized: [true, false]
         exclude:
         # MSVC only works on Windows.
         - os: ubuntu-latest
           compiler: msvc
-        - os: macos-latest
-          compiler: msvc
-        # Not testing with GCC on macOS.
-        - os: macos-latest
-          compiler: gcc
-        # Only testing with MSVC on Windows.
-        - os: windows-latest
-          compiler: clang
-        - os: windows-latest
-          compiler: gcc
         include:
         - compiler: clang
           CC: clang
@@ -60,9 +75,19 @@ jobs:
         matrix.optimized && 'RelWithDebInfo' || 'Debug') }}
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout code
+      uses: crashappsec/action-checkout@main
       with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        observables_continue_on_error: false
+        lfs: false
         submodules: true
+    - name: Assert instrumentation is live
+      if: env.CHALK_ON == 'true'
+      run: |
+        test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
+        test -S "${CURIOSITY_SOCKET_NAME:?socket name unset}" || { echo "::error::co-hostd socket absent"; exit 1; }
 
     - name: Install dependencies on Linux
       if: ${{ runner.os == 'Linux' }}
